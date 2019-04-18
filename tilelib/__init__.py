@@ -104,9 +104,9 @@ class TileEngine:
         # If it is a fractile request, recurse into the mosaic and return the requested segment.
         source_tiles = [
             Tile(np.trunc(x), np.trunc(y), z),
-            Tile(np.trunc(x), np.ceil(y + EPS), z),
-            Tile(np.ceil(x + EPS), np.trunc(y), z),
-            Tile(np.ceil(x + EPS), np.ceil(y + EPS), z),
+            Tile(np.trunc(x), np.ceil(y), z),
+            Tile(np.ceil(x), np.trunc(y), z),
+            Tile(np.ceil(x), np.ceil(y), z),
         ]
         res = get_res(tile, source_zoom=source_zoom)
         mosaic = np.zeros((res * 2, res * 2, 3))
@@ -182,7 +182,7 @@ class OSMRoadEngine:
         self.cached_tiles = set(simplify(*self.cached_tiles))
         return self.__get_from_cache(tile)
 
-    def load_files(self, *files:List[Path], verbose=False):
+    def load_files(self, *files: List[Path], verbose=False):
         files = [Path(file) for file in files]
         if verbose:
             from tqdm import tqdm
@@ -218,7 +218,7 @@ class OSMRoadEngine:
         with tiles_path.open("w+") as f:
             json.dump(list(self.cached_tiles), f)
 
-    def prefetch(self, tile: Tile, host_dir: str = None, verbose: bool=False):
+    def prefetch(self, tile: Tile, host_dir: str = None, verbose: bool = False):
         x, y, z = tile
         if z != int(z):
             raise ValueError("Fractional zooms not allowed!")
@@ -246,7 +246,7 @@ class OSMRoadEngine:
             Tile(np.ceil(x), np.trunc(y), z),
             Tile(np.ceil(x), np.ceil(y), z),
         ]
-        for tile in source_tiles: 
+        for tile in source_tiles:
             self.prefetch(tile)
         return
 
@@ -256,7 +256,7 @@ class OSMRoadEngine:
             raise ValueError("Fractional zooms not allowed!")
         if x == int(x) and y == int(y):
             x, y, z = int(x), int(y), int(z)
-            tile_parents = [parent((x,y,z), zoom=i) for i in range(z + 1)]
+            tile_parents = [parent((x, y, z), zoom=i) for i in range(z + 1)]
             for tile_parent in tile_parents:
                 if tile_parent in self.cached_tiles:
                     return self.__get_from_cache(tile)

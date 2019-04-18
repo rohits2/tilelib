@@ -62,14 +62,11 @@ class TileEngine:
         if len(tile) == 1:
             tile = tile[0]
         x, y, z = tile
-        parents = [parent(Tile(int(x), int(y), z), zoom=i) for i in range(z + 1)]
+        parents = [parent(Tile(int(fn(x)), int(fn(y)), z), zoom=i) for i, fn in product(range(z + 1), [np.ceil, np.floor])]
         for supertile in parents:
             if supertile in self.stacks:
                 return self.__make_image(self.stacks[supertile], tile, source_zoom)
-        raise FileNotFoundError(f"""
-                                    Could not find a parent tilestack for requested subtile {tile}!
-                                    It is possible this subtile was requested as part of a mosaic.
-                                """)
+        raise FileNotFoundError(f"Could not find a parent tilestack for requested subtile {tile}!")
 
     def __make_image(self, stack_path: Path, tile: Tile, source_zoom: int = 18):
         x, y, z = tile
@@ -95,10 +92,13 @@ class TileEngine:
             res = get_res(tile, source_zoom=source_zoom)
             mosaic = np.zeros((res, res, 3))
             source_tiles = children(tile)
-            mosaic[:res // 2, :res // 2, :] = self.get_image(source_tiles[0], source_zoom=source_zoom)
-            mosaic[:res // 2, res // 2:, :] = self.get_image(source_tiles[1], source_zoom=source_zoom)
-            mosaic[res // 2:, :res // 2, :] = self.get_image(source_tiles[3], source_zoom=source_zoom)
-            mosaic[res // 2:, res // 2:, :] = self.get_image(source_tiles[2], source_zoom=source_zoom)
+            try:
+                mosaic[:res // 2, :res // 2, :] = self.get_image(source_tiles[0], source_zoom=source_zoom)
+                mosaic[:res // 2, res // 2:, :] = self.get_image(source_tiles[1], source_zoom=source_zoom)
+                mosaic[res // 2:, :res // 2, :] = self.get_image(source_tiles[3], source_zoom=source_zoom)
+                mosaic[res // 2:, res // 2:, :] = self.get_image(source_tiles[2], source_zoom=source_zoom)
+            except FileNotFoundError as e:
+                raise FileNotFoundError(str(e) + f"\n This tile was requested as part of a mosaic for {tile}.")
             return mosaic
 
         # If it is a fractile request, recurse into the mosaic and return the requested segment.
@@ -111,10 +111,13 @@ class TileEngine:
         res = get_res(tile, source_zoom=source_zoom)
         mosaic = np.zeros((res * 2, res * 2, 3))
 
-        mosaic[:res, :res, :] = self.get_image(source_tiles[0], source_zoom=source_zoom)
-        mosaic[:res, res:, :] = self.get_image(source_tiles[2], source_zoom=source_zoom)
-        mosaic[res:, :res, :] = self.get_image(source_tiles[1], source_zoom=source_zoom)
-        mosaic[res:, res:, :] = self.get_image(source_tiles[3], source_zoom=source_zoom)
+        try:
+            mosaic[:res, :res, :] = self.get_image(source_tiles[0], source_zoom=source_zoom)
+            mosaic[:res, res:, :] = self.get_image(source_tiles[2], source_zoom=source_zoom)
+            mosaic[res:, :res, :] = self.get_image(source_tiles[1], source_zoom=source_zoom)
+            mosaic[res:, res:, :] = self.get_image(source_tiles[3], source_zoom=source_zoom)
+        except FileNotFoundError as e:
+            raise FileNotFoundError(str(e) + f"\n This tile was requested as part of a mosaic for {tile}.")
 
         x_cut = int((x - int(x)) * res)
         y_cut = int((y - int(y)) * res)

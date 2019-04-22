@@ -58,7 +58,7 @@ class TileEngine:
     def __setitem__(self, stack_tile: Tile, stack_path: Path):
         self.add_stack(stack_path, stack_tile)
 
-    def get_image(self, *tile: Tile, source_zoom: int = 18):
+    def get_image(self, *tile: Tile, source_zoom: int = 18, black_fail: bool =False):
         if len(tile) == 1:
             tile = tile[0]
         x, y, z = tile
@@ -68,14 +68,14 @@ class TileEngine:
                 return self.__make_image(self.stacks[supertile], tile, source_zoom)
         raise FileNotFoundError(f"Could not find a parent tilestack for requested subtile {tile}!")
 
-    def __make_image(self, stack_path: Path, tile: Tile, source_zoom: int = 18):
+    def __make_image(self, stack_path: Path, tile: Tile, source_zoom: int = 18, black_fail: bool=False):
         x, y, z = tile
         if z != int(z):
             raise ValueError("Cannot make fractionally-zoomed images!")
 
         # If this is a primitive tile request, simply return the raw image
         if x == int(x) and y == int(y) and z >= source_zoom:
-            path = stack_path / get_stack_path(tile)
+            path = stack_path / get_stack_path(tile)   
             with path.open('rb') as f:
                 img = plt.imread(f) / 255
                 if len(img.shape) < 3 or img.shape[2] != 3:
@@ -117,7 +117,7 @@ class TileEngine:
             mosaic[res:, :res, :] = self.get_image(source_tiles[1], source_zoom=source_zoom)
             mosaic[res:, res:, :] = self.get_image(source_tiles[3], source_zoom=source_zoom)
         except FileNotFoundError as e:
-            raise FileNotFoundError(str(e) + f"\n This tile was requested as part of a mosaic for {tile}.")
+            raise FileNotFoundError(str(e) + f"\nThis tile was requested as part of a mosaic for {tile}.")
 
         x_cut = int((x - int(x)) * res)
         y_cut = int((y - int(y)) * res)
@@ -129,10 +129,23 @@ LAT_LNG_BUFFER = 0.01
 
 WIDTH_FACTOR = 90 / 1e7  # Bad history lesson here
 raster_table = {
-    "residential": 4.,
+    "motorway": 2,
+    "trunk": 10,
+    "primary": 8,
+    "residential": 3.,
     "secondary": 5.,
     "tertiary": 3.,
     "unclassified": 2.,
+    "service": 2,
+    "pedestrian": 1,
+    "track": 2,
+    "escape": 3,
+    "footway": 1,
+    "motorway_link":8,
+    "trunk_link": 4,
+    "primary_link": 4,
+    "secondary_link": 3,
+    "tertiary_link": 3,
 }
 
 
@@ -328,7 +341,7 @@ def rasterize_geometry(geometry: List[Polygon], tile: Tile, source_zoom: int = 1
 def buffer_geometry(gdf: gpd.GeoDataFrame, width_table: Dict[str, float] = raster_table, default_width: float = 1.5) -> List[Polygon]:
     roads: List[Polygon] = []
     for row in gdf.itertuples():
-        if 'highway' in row:
+        if hasattr(row, 'highway'):
             road_class = row.highway
         else:
             road_class = row.fclass

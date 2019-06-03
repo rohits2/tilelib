@@ -12,6 +12,7 @@ from PIL.ImageDraw import Draw
 from matplotlib import pyplot as plt
 from mercantile import Tile, bounds, LngLatBbox, parent, simplify, xy, xy_bounds, bounding_tile
 from mercantile import children
+from loguru import logger
 
 from shapely.geometry import Polygon, MultiPolygon, Point, LineString
 from shapely.ops import transform
@@ -43,8 +44,9 @@ def get_res(tile: Tile, source_zoom: int = 18):
 
 
 class TileEngine:
-    def __init__(self):
+    def __init__(self, use_max_res=True):
         self.stacks: Dict[Tile, Path] = {}
+        self.max_res = use_max_res
 
     def add_stack(self, stack_path: Path, stack_tile: Tile):
         if type(stack_path) == str:
@@ -52,30 +54,48 @@ class TileEngine:
         assert stack_path.exists()
         self.stacks[stack_tile] = stack_path
 
+    def add_directory(self, stack_dir: Path):
+        if type(stack_dir) == str:
+            stack_dir = Path(stack_dir)
+        assert stack_dir.exists()
+        assert stack_dir.is_dir()
+        count = 0
+        for subdir in stack_dir.iterdir():
+            if subdir.is_dir():
+                _, z, x, y, *_ = subdir.name.split("_")
+                x, y, z = map(int, (x, y, z))
+                self[x, y, z] = subdir 
+                count+=1
+        logger.info(f"Found {count} tilestacks")
+
     def __getitem__(self, tile: Tile):
         return self.get_image(tile)
 
     def __setitem__(self, stack_tile: Tile, stack_path: Path):
         self.add_stack(stack_path, stack_tile)
 
-    def get_image(self, *tile: Tile, source_zoom: int = 18, black_fail: bool =False):
+    def get_image(self, *tile: Tile, source_zoom: int = 18, black_fail: bool = False):
         if len(tile) == 1:
             tile = tile[0]
         x, y, z = tile
-        parents = [parent(Tile(int(fn(x)), int(fn(y)), z), zoom=i) for i, fn in product(range(z + 1), [np.ceil, np.floor])]
+        if not self.max_res:
+            source_zoom = z
+        parents = [
+            parent(Tile(int(fn(x)), int(fn(y)), z), zoom=i) for i, fn in product(range(z + 1), [np.ceil, np.floor])
+        ]
         for supertile in parents:
             if supertile in self.stacks:
                 return self.__make_image(self.stacks[supertile], tile, source_zoom)
         raise FileNotFoundError(f"Could not find a parent tilestack for requested subtile {tile}!")
 
-    def __make_image(self, stack_path: Path, tile: Tile, source_zoom: int = 18, black_fail: bool=False):
+    def __make_image(self, stack_path: Path, tile: Tile, source_zoom: int = 18, black_fail: bool = False):
         x, y, z = tile
         if z != int(z):
             raise ValueError("Cannot make fractionally-zoomed images!")
 
         # If this is a primitive tile request, simply return the raw image
         if x == int(x) and y == int(y) and z >= source_zoom:
-            path = stack_path / get_stack_path(tile)   
+            path = stack_path / get_stack_path(tile)
             with path.open('rb') as f:
                 img = plt.imread(f) / 255
                 if len(img.shape) < 3 or img.shape[2] != 3:
@@ -141,7 +161,7 @@ raster_table = {
     "track": 2,
     "escape": 3,
     "footway": 1,
-    "motorway_link":8,
+    "motorway_link": 8,
     "trunk_link": 4,
     "primary_link": 4,
     "secondary_link": 3,
@@ -195,7 +215,25 @@ class OSMRoadEngine:
         self.cached_tiles = set(simplify(*self.cached_tiles))
         return self.__get_from_cache(tile)
 
-    def load_files(self, *files: List[Path], verbose=False):
+    def load_directory(self, stack_dir: Path, verbose: bool = False):
+        files = self.__recursive_dir_search(stack_dir)
+        logger.info(f"Found {len(files)} road files!")
+        self.load_files(*files, verbose=verbose)
+
+    def __recursive_dir_search(self, stack_dir):
+        files = []
+        if type(stack_dir) == str:
+            stack_dir = Path(stack_dir)
+        assert stack_dir.exists()
+        assert stack_dir.is_dir()
+        for sub in stack_dir.iterdir():
+            if sub.is_dir():
+                files += self.__recursive_dir_search(sub)
+            elif "osm_roads" in sub.name and sub.name[-4:] == ".shp":
+                files += [sub]
+        return files
+
+    def load_files(self, *files: List[Path], verbose: bool = False):
         files = [Path(file) for file in files]
         if verbose:
             from tqdm import tqdm
@@ -217,10 +255,10 @@ class OSMRoadEngine:
             tileset |= {root}
         self.cached_tiles |= set(simplify(*tileset))
         if verbose:
-            print("RoadEngine is building an R-Tree...")
+            logger.info("RoadEngine is building an R-Tree...")
         self.cache.sindex
         if verbose:
-            print("RoadEngine R-Tree done!")
+            logger.info("RoadEngine R-Tree done!")
 
     def save(self, host_dir="/tmp"):
         Path(host_dir).mkdir(exist_ok=True, parents=True)
@@ -338,7 +376,8 @@ def rasterize_geometry(geometry: List[Polygon], tile: Tile, source_zoom: int = 1
     return ar
 
 
-def buffer_geometry(gdf: gpd.GeoDataFrame, width_table: Dict[str, float] = raster_table, default_width: float = 1.5) -> List[Polygon]:
+def buffer_geometry(gdf: gpd.GeoDataFrame, width_table: Dict[str, float] = raster_table,
+                    default_width: float = 1.5) -> List[Polygon]:
     roads: List[Polygon] = []
     for row in gdf.itertuples():
         if hasattr(row, 'highway'):

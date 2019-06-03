@@ -27,7 +27,7 @@ setup(
     packages=find_packages(exclude=["ez_setup", "examples", "tests"]),
     include_package_data=True,
     zip_safe=False,
-    install_requires=["mercantile","pillow","geopandas", "pandas", "osmnx", "numpy", "shapely"],
+    install_requires=["mercantile","pillow","geopandas", "pandas", "osmnx", "numpy", "shapely", "loguru"],
     extras_require={
         "dev": ["check-manifest"],
         "test": ["coveralls", "pytest-cov", "pydocstyle"],
